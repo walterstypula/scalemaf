@@ -56,6 +56,20 @@ namespace scalemaf
         [Column("Intake Air T."), Required]
         public double IntakeAirTemp { get; set; }
 
+        /// <summary>
+        /// The volume adjustment needed to make this MAFv accurate.
+        /// </summary>
+        [NotMapped]
+        public double? VolumeAdjustment
+        {
+            get
+            {
+                return FuelSysStatus == 2 ? (StFuelTrim + LtFuelTrim) / 100.0 :
+                       FuelSysStatus == 4 ? CommandedAfr / (Afr * (LtFuelTrim + 100.0)) * 100.0 :
+                       (double?)null;
+            }
+        }
+
         public static List<OftRecord> FromFile(string filePath)
         {
             using (var reader = new StreamReader(filePath))

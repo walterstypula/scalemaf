@@ -147,44 +147,67 @@ namespace scalemaf
             List<OftRecord> srcRecords = OftRecord.FromFile(filePath);
 
             // determine a good cutoff point for IAT to avoid useless heat-soaked records.
-            // an engine load of ~0.25 appears to be idle, where IATs will rise. grab all the temps for loads above 0.3, find the top quartile,
-            // and use that as a cutoff for all records. ultimately this may be something the user needs to eyeball, but automating it this way
-            // seems to work pretty well so far.
+            // an engine load of ~0.25 appears to be idle, where IATs will rise. grab all the temps for loads above
+            // 0.3, find the top quartile, and use that as a cutoff for all records. ultimately this may be something
+            // the user needs to eyeball, but automating it this way seems to work pretty well so far.
 
-            double[] loadedTemps = srcRecords.Where(r => r.EngineLoad > 0.3).Select(r => r.IntakeAirTemp).OrderBy(iat => iat).ToArray();
+            double[] loadedTemps = srcRecords
+                .Where(r => r.EngineLoad > 0.3)
+                .Select(r => r.IntakeAirTemp)
+                .OrderBy(iat => iat)
+                .ToArray();
+
             int topQuartile = loadedTemps.Length * 3 / 4;
 
             double iatMin = loadedTemps[0];
             double iatMax = loadedTemps[topQuartile];
             double iatAvg = loadedTemps.Take(topQuartile).Average();
 
-            // sort by time and grab the record's time and change rate.
+            // ensure records are sorted by time so we can get proper change rate.
 
             srcRecords.Sort((x, y) => x.Time.CompareTo(y.Time));
 
-            var mafChangeXYs = Enumerable.Zip(srcRecords, srcRecords.Skip(1), (x, y) => new
-            {
-                y.MafVoltage,
-                FuelTrims = closedLoop && y.FuelSysStatus == 2 ? (y.StFuelTrim + y.LtFuelTrim) / 100.0 :
-                            openLoop && y.FuelSysStatus == 4 ? y.CommandedAfr / (y.Afr * (y.LtFuelTrim + 100.0)) * 100.0 :
-                            (double?)null,
-                y.FuelSysStatus,
-                y.IntakeAirTemp,
-                TimeXY = y.Time - x.Time,
-                MafChangeXY = Math.Abs((y.MafVoltage - x.MafVoltage) / (y.Time - x.Time)),
-            });
-
-            // filter out anything not closed-loop or with a fast change rate, and run adjustments.
-
-            mafChangeXYs = mafChangeXYs.Where(r => r.FuelTrims != null && r.MafChangeXY <= 0.2 && r.IntakeAirTemp <= iatMax);
+            // run adjustments.
 
             int openKept = 0, closedKept = 0;
-            foreach (var r in mafChangeXYs)
-            {
-                if (r.FuelSysStatus == 2) ++closedKept;
-                else ++openKept;
 
-                Adjust(r.MafVoltage, r.TimeXY, r.FuelTrims.Value);
+            for (int i = 1; i < srcRecords.Count; ++i)
+            {
+                OftRecord prev = srcRecords[i - 1], cur = srcRecords[i];
+
+                // the time (in seconds) from the previous record to this record.
+                double time = cur.Time - prev.Time;
+
+                // The MAFv change rate (in volts/sec) from the previous record to this record.
+                // Records with too high of a change rate are thrown out as inaccurate.
+                double mafChangeRate = Math.Abs((cur.MafVoltage - prev.MafVoltage) / time);
+                if (mafChangeRate > 0.2) continue;
+
+                // The volume adjustment to make.
+                // If the record is missing data or columns, it will be null.
+                double? adjustment = cur.VolumeAdjustment;
+                if (adjustment == null) continue;
+
+                // Filter out heat-soaked data, as temp fluctuations will throw things off.
+                if (cur.IntakeAirTemp > iatMax) continue;
+
+                if (cur.FuelSysStatus == 2)
+                {
+                    if (!closedLoop) continue;
+                    ++closedKept;
+                }
+                else if (cur.FuelSysStatus == 4)
+                {
+                    if (!openLoop) continue;
+                    ++openKept;
+                }
+                else
+                {
+                    // unknown fuel system status.
+                    continue;
+                }
+
+                Adjust(cur.MafVoltage, time, adjustment.Value);
             }
 
             return new UpdateResult
@@ -199,8 +222,7 @@ namespace scalemaf
         }
 
         /// <summary>
-        /// Applies an adjustment.
-        /// Blends the adjustment between two bins depending on MAFv.
+        /// Applies the adjustment, blending between two bins depending on MAFv.
         /// </summary>
         void Adjust(double mafVoltage, double timeXY, double adj)
         {
