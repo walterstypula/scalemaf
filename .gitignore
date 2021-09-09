@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/scalemaf/bin/Debug
+/scalemaf/obj/Debug
+/packages
+/.vs/scalemaf/v17
+/.idea/.idea.scalemaf/.idea
+/scalemaf/scalemaf.csproj.user

@@ -37,7 +37,11 @@ namespace scalemaf
                 return;
             }
 
-            MafScaler scaler = new MafScaler(MafScaler.StockBins);
+
+            var targetAfrTable = Table.LoadTableData(@"C:\Users\WS\source\repos\TimingEditor\Files\tableFuelBase.txt");
+            var mafTable = Table.LoadTableData(@"C:\Users\WS\source\repos\TimingEditor\Files\tableMafBase.txt");
+            var bins = MafScaler.BuildBins(mafTable.ColumnReference.ToArray(),mafTable.DataCells[0].ToArray());
+            MafScaler scaler = new MafScaler(bins, targetAfrTable);
 
             foreach (var path in args)
             {

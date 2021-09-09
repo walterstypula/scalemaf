@@ -29,71 +29,55 @@ namespace scalemaf
 {
     sealed class OftRecord
     {
-        [Column("Time[s]"), Required]
+        [Column("Time (msec)"), Required]
         public double Time { get; set; }
 
-        [Column("Engine load"), Required]
+        [Column("RPM"), Required]
+        public double EngineSpeed { get; set; }
+
+        [Column("Load (g/rev)"), Required]
         public double EngineLoad { get; set; }
 
-        [Column("MAF Voltage"), Required]
+        [Column("MAF (V)"), Required]
         public double MafVoltage { get; set; }
 
-        [Column("AFR")]
-        public double? Afr { get; set; }
+        [Column("*AFR")]
+        public double? CurrentAfr { get; set; }
 
-        [Column("Commanded AFR")]
+        [Column("CommandedAfr")]
         public double? CommandedAfr { get; set; }
 
-        [Column("ST Fuel Trim")]
+        [Column("Fuel correct (%)")]
         public double? StFuelTrim { get; set; }
 
-        [Column("LT Fuel Trim"), Required]
+        [Column("Fuel learn (%)"), Required]
         public double LtFuelTrim { get; set; }
 
-        [Column("Fuel Sys Status"), Required]
-        public int FuelSysStatus { get; set; }
+        [Column("Closed loop"), Required]
+        public int ClosedLoop { get; set; }
 
-        [Column("Intake Air T."), Required]
+        [Column("Intake (degF)")]
         public double IntakeAirTemp { get; set; }
 
-        /// <summary>
-        /// The volume adjustment needed to make this MAFv accurate.
-        /// </summary>
-        [NotMapped]
-        public double? VolumeAdjustment
+        public double? GetVolumeAdjustment(Table targetAfrTable)
         {
-            get
+            if (ClosedLoop == 1)
             {
-                return FuelSysStatus == 2 ? (StFuelTrim + LtFuelTrim) / 100.0 :
-                       FuelSysStatus == 4 ? CommandedAfr / (Afr * (LtFuelTrim + 100.0)) * 100.0 :
-                       (double?)null;
+                return (StFuelTrim + LtFuelTrim) / 100.0;
             }
+            else if (ClosedLoop == 0)
+            {
+                var afr = CommandedAfr ?? targetAfrTable.GetData(EngineLoad, EngineSpeed);
+                return (CurrentAfr - afr) / afr;
+            }
+
+            return null;
         }
 
         public static List<OftRecord> FromFile(string filePath)
         {
             using (var reader = new StreamReader(filePath))
             {
-                string line = reader.ReadLine();
-
-                if (!string.Equals(line, "Procede Data Log", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new Exception("Expected an OFT log.");
-                }
-
-                // I guess "OpenFlash Data File 1" is a version number.
-
-                line = reader.ReadLine();
-
-                if (!string.Equals(line, "OpenFlash Data File 1", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new Exception("Expected an OFTv1 log.");
-                }
-
-                // this appears to be the number of columns in the file, or more specifically the 0-based index of the final column.
-                // i.e. for 5 columns, this will be "6".
-                reader.ReadLine();
-
                 // finally read in objects.
                 return Formats.Csv.ReadObjects<OftRecord>(reader, validate: true).ToList();
             }

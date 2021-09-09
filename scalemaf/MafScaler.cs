@@ -40,6 +40,7 @@ namespace scalemaf
         readonly double[] adjustments; //  bin adjustments.
         readonly double[] adjustmentTimes; // seconds (in time) of adjustments that went into this bin.
         readonly double[] adjustmentWeights; // sample count that went into this bin.
+        private readonly Table _targetAfrTable;
 
         /// <summary>
         /// Bins for stock FR-S.
@@ -68,7 +69,7 @@ namespace scalemaf
         /// <summary>
         /// Merges two arrays into a series of bins.
         /// </summary>
-        static IEnumerable<MafBin> BuildBins(double[] volts, double[] volume)
+        public static IEnumerable<MafBin> BuildBins(double[] volts, double[] volume)
         {
             Debug.Assert(volts != null);
             Debug.Assert(volume != null);
@@ -123,9 +124,11 @@ namespace scalemaf
             }
         }
 
-        public MafScaler(IEnumerable<MafBin> bins)
+        public MafScaler(IEnumerable<MafBin> bins, Table targetAfrTable)
         {
             if (bins == null) throw new ArgumentNullException("bins");
+
+            _targetAfrTable = targetAfrTable;
 
             bins = bins.OrderBy(x => x.Volts).ToArray();
 
@@ -185,18 +188,18 @@ namespace scalemaf
 
                 // The volume adjustment to make.
                 // If the record is missing data or columns, it will be null.
-                double? adjustment = cur.VolumeAdjustment;
+                double? adjustment = cur.GetVolumeAdjustment(_targetAfrTable);
                 if (adjustment == null) continue;
 
                 // Filter out heat-soaked data, as temp fluctuations will throw things off.
                 if (cur.IntakeAirTemp > iatMax) continue;
 
-                if (cur.FuelSysStatus == 2)
+                if (cur.ClosedLoop == 1)
                 {
                     if (!closedLoop) continue;
                     ++closedKept;
                 }
-                else if (cur.FuelSysStatus == 4)
+                else if (cur.ClosedLoop == 0)
                 {
                     if (!openLoop) continue;
                     ++openKept;
